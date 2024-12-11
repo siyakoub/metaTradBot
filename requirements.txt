@@ -1,0 +1,7 @@
+MetaTrader5
+pandas
+scikit-learn
+tensorflow
+keras
+python-telegram-bot
+colorama

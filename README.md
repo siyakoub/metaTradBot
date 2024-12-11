@@ -1,1 +1,1 @@
-# metaTradBot
+# MetaTradBot
