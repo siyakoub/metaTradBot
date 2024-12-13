@@ -1,4 +1,4 @@
-from Analyzer.MarketAnalyzer import MarketAnalyzer
+from model.IA.Analyzer.MarketAnalyzer import MarketAnalyzer
 
 if __name__ == '__main__':
     symbols = ["EURUSD", "GBPUSD"]
