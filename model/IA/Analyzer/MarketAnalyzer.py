@@ -9,7 +9,6 @@ class MarketAnalyzer:
     def __init__(self, symbols):
         """
             Initialise le MarketAnalyzer avec une liste de symboles à analyser.
-
             :param symbols: Liste des symboles à surveiller (ex: ["EURUSD", "GBPUSD"])
         """
         self.symbols = symbols
@@ -35,11 +34,11 @@ class MarketAnalyzer:
 
     def get_market_data(self, symbol, timeframe=mt5.TIMEFRAME_H1, count=100):
         """
-        Récupère les données de marché pour un symbole donné.
-        :param symbol: Le symbole à récupérer (ex: "EURUSD").
-        :param timeframe: Le timeframe des données (par défaut 1H).
-        :param count: Le nombre de bougies à récupérer.
-        :return: Un DataFrame contenant les données OHLC.
+            Récupère les données de marché pour un symbole donné.
+            :param symbol: Le symbole à récupérer (ex: "EURUSD").
+            :param timeframe: Le timeframe des données (par défaut 1H).
+            :param count: Le nombre de bougies à récupérer.
+            :return: Un DataFrame contenant les données OHLC.
         """
         if not self.connected:
             raise ConnectionError(Fore.RED + "Non connecté à MetaTrader 5. Veuillez appeler connect() d'abord.")
