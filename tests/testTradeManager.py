@@ -12,8 +12,8 @@ if __name__ == "__main__":
         # Exemple : ouvrir un trade
         result = tm.openTrade("EURUSD", "buy", 0.1, stopLoss=1.05, takeProfit=1.10)
 
-        # Vérifier que le trade s'est bien ouvert
-        if result.retcode == mt5.TRADE_RETCODE_DONE:
+        # Vérifier si result est None avant d'accéder à result.retcode
+        if result is not None and result.retcode == mt5.TRADE_RETCODE_DONE:  # Correction ici
             print("Trade ouvert avec succès. Attente de 30 secondes avant fermeture...")
             time.sleep(30)
 

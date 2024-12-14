@@ -54,64 +54,92 @@ class TradeManager:
         # Distance minimale pour SL/TP
         min_distance = symbol_info.trade_stops_level * symbol_info.point
 
-        # Déterminer le prix actuel et le type d'ordre
-        tick = mt5.symbol_info_tick(symbol)
-        if not tick:
-            raise ValueError(f"{Fore.RED}Impossible de récupérer les tick data pour : {symbol}")
-
-        if action == 'buy':
-            price = tick.ask
-            action_type = mt5.ORDER_TYPE_BUY
-        else:  # action == 'sell'
-            price = tick.bid
-            action_type = mt5.ORDER_TYPE_SELL
-
-        # Ajustement des distances de Stop Loss et Take Profit si nécessaire
-        if stopLoss is not None:
-            if action == 'buy' and stopLoss > price - min_distance:
-                stopLoss = price - min_distance
-                print(f"{Fore.YELLOW}Stop Loss ajusté à : {stopLoss}")
-            elif action == 'sell' and stopLoss < price + min_distance:
-                stopLoss = price + min_distance
-                print(f"{Fore.YELLOW}Stop Loss ajusté à : {stopLoss}")
-
-        if takeProfit is not None:
-            if action == 'buy' and takeProfit < price + min_distance:
-                takeProfit = price + min_distance
-                print(f"{Fore.YELLOW}Take Profit ajusté à : {takeProfit}")
-            elif action == 'sell' and takeProfit > price - min_distance:
-                takeProfit = price - min_distance
-                print(f"{Fore.YELLOW}Take Profit ajusté à : {takeProfit}")
-
-        # Construction de la requête
-        request = {
-            "action": mt5.TRADE_ACTION_DEAL,
-            "symbol": symbol,
-            "volume": volume,
-            "type": action_type,
-            "price": price,
-            "sl": stopLoss,
-            "tp": takeProfit,
-            "deviation": deviation,
-            "magic": 234000,
-            "comment": "Trade ouvert par MetaTradBot"
-        }
-
-        # Logs pour la requête
-        print(f"Requête envoyée : {request}")
-
         try:
+            # Déterminer le prix actuel et le type d'ordre
+            tick = mt5.symbol_info_tick(symbol)
+            if not tick:
+                raise ValueError(f"{Fore.RED}Impossible de récupérer les tick data pour : {symbol}")
+
+            if action == 'buy':
+                price = tick.ask
+                action_type = mt5.ORDER_TYPE_BUY
+            else:  # action == 'sell'
+                price = tick.bid
+                action_type = mt5.ORDER_TYPE_SELL
+
+            # Ajustement des distances de Stop Loss et Take Profit si nécessaire
+            if stopLoss is not None:
+                if action == 'buy' and stopLoss > price - min_distance:
+                    stopLoss = price - min_distance
+                    print(f"{Fore.YELLOW}Stop Loss ajusté à : {stopLoss}")
+                elif action == 'sell' and stopLoss < price + min_distance:
+                    stopLoss = price + min_distance
+                    print(f"{Fore.YELLOW}Stop Loss ajusté à : {stopLoss}")
+
+            if takeProfit is not None:
+                if action == 'buy' and takeProfit < price + min_distance:
+                    takeProfit = price + min_distance
+                    print(f"{Fore.YELLOW}Take Profit ajusté à : {takeProfit}")
+                elif action == 'sell' and takeProfit > price - min_distance:
+                    takeProfit = price - min_distance
+                    print(f"{Fore.YELLOW}Take Profit ajusté à : {takeProfit}")
+
+            broker = mt5.account_info().company
+            print(broker)
+            if broker == "STARTRADER International PTY Limited":
+                filling_mode = mt5.ORDER_FILLING_IOC
+            elif broker == "MetaQuotes Ltd.":
+                filling_mode = mt5.ORDER_FILLING_RETURN
+            else:
+                filling_mode = mt5.ORDER_FILLING_FOK  # Mode par défaut
+
+            # Construction de la requête
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": symbol,
+                "volume": volume,
+                "type": action_type,
+                "price": price,
+                "sl": stopLoss,
+                "tp": takeProfit,
+                "type_filling": filling_mode,
+                "deviation": deviation,
+                "magic": 234000,
+                "comment": "Trade ouvert par MetaTradBot"
+            }
+
+            # Logs pour la requête
+            print(f"Requête envoyée : {request}")
+
             # Envoi de la requête
             result = mt5.order_send(request)
 
+            # Vérification si result est None
+            if result is None:
+                raise ValueError(f"{Fore.RED}Erreur lors de l'envoi de l'ordre: order_send() a renvoyé None")
+
+            # Vérification si le marché est ouvert
+            if not mt5.symbol_info(symbol).trade_mode:
+                raise ValueError(f"{Fore.RED}Marché fermé pour {symbol}")
+
             # Vérification des résultats
-            if result.retcode != mt5.TRADE_RETCODE_DONE:
+            if result.retcode != mt5.TRADE_RETCODE_DONE or result.retcode is None:
                 print(f"{Fore.RED}Echec de l'ouverture de la position : {result.retcode} - {result.comment}")
                 # Logique pour gérer l'erreur (par exemple, réessayer avec des valeurs ajustées)
                 raise ValueError(f"{Fore.RED}Echec de l'ouverture de la position : {result.retcode}")
 
             print(f"{Fore.GREEN}Trade exécuté avec succès : {result}")
             return result
+
+        except ValueError as e:
+            if "10018" in str(e):  # Vérifier si l'erreur est due au marché fermé
+                print(f"{Fore.YELLOW}Impossible d'ouvrir la position : {e}")
+                # Logique pour gérer le marché fermé (par exemple, réessayer plus tard)
+                # ...
+            else:
+                print(f"{Fore.RED}Erreur lors de l'envoi de l'ordre: {e}")
+                raise  # Relève l'exception pour les autres erreurs
+
         except Exception as e:
             print(f"{Fore.RED}Erreur lors de l'envoi de l'ordre: {e}")
             raise  # Relève l'exception pour arrêter l'exécution
