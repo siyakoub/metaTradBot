@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 
+from model.IA.Analyzer.MarketAnalyzer import MarketAnalyzer
+
 
 def calculate_rsi(prices, period=14):
     """
@@ -73,5 +75,17 @@ def prepareData(data):
     data.dropna(inplace=True)
 
     return data
+
+def get_realtime_data(symbols):
+    analyzer = MarketAnalyzer(symbols)
+    try:
+        analyzer.connect()
+        market_data = analyzer.analyzeMarket()
+        prepared_data = {}
+        for symbol, df in market_data.items():
+            prepared_data[symbol] = prepareData(df)  # Préparer les données avec vos fonctions existantes
+        return prepared_data
+    finally:
+        analyzer.disconnect()
 
 
