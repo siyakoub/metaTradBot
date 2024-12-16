@@ -172,6 +172,14 @@ class TradeManager:
             action_type = mt5.ORDER_TYPE_BUY
             price = mt5.symbol_info_tick(symbol).ask  # Prix Ask pour l'achat
 
+        broker = mt5.account_info().company
+        print(broker)
+        if broker == "STARTRADER International PTY Limited":
+            filling_mode = mt5.ORDER_FILLING_IOC
+        elif broker == "MetaQuotes Ltd.":
+            filling_mode = mt5.ORDER_FILLING_RETURN
+        else:
+            filling_mode = mt5.ORDER_FILLING_FOK  # Mode par défaut
         # Corps de la requête
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -180,6 +188,7 @@ class TradeManager:
             "type": action_type,
             "position": position.ticket,  # Ajout de l'ID de position
             "price": price,
+            "type_filling": filling_mode,
             "deviation": deviation,
             "magic": 234000,
             "comment": "Trade fermé par MetaTradBot",

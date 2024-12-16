@@ -1,8 +1,9 @@
 MetaTrader5~=5.0.4732
 pandas~=2.2.3
 scikit-learn~=1.6.0
-tensorflow
+tensorflow~=2.18.0
 keras
 python-telegram-bot
 colorama~=0.4.6
 numpy~=2.0.2
+torch~=2.5.1

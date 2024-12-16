@@ -52,29 +52,38 @@ def calculate_rsi(prices, period=14):
 
 
 def prepareData(data):
-    """
-    Prépare les données pour l'analyse.
-    :param data: DataFrame contenant les données brutes.
-    :return: DataFrame avec les données normalisées et les indicateurs calculés.
-    """
-    data = data.copy()  # Crée une copie explicite pour éviter les warnings
-    scaler = MinMaxScaler()
-    data.loc[:, ['open', 'high', 'low', 'close']] = scaler.fit_transform(data[['open', 'high', 'low', 'close']])
+    print("Données brutes avant traitement :")
+    print(data.head(20))  # Vérifiez les premières lignes
 
-    # Vérification de la taille des données
-    if len(data) < 20:
-        print(f"Pas assez de données pour calculer les indicateurs. Lignes disponibles : {len(data)}")
-        return data
+    # Vérifiez les colonnes avec des NaN
+    print("Colonnes avec valeurs manquantes avant traitement :")
+    print(data.isna().sum())
+
+    # Normalisation
+    scaler = MinMaxScaler()
+    columns_to_normalize = ['open', 'high', 'low', 'close']
+    data[columns_to_normalize] = scaler.fit_transform(data[columns_to_normalize])
 
     # Ajout des indicateurs techniques
     data['ma_fast'] = data['close'].rolling(window=20).mean()
     data['ma_slow'] = data['close'].rolling(window=50).mean()
     data['rsi'] = calculate_rsi(data['close'], period=14)
 
-    # Suppression des valeurs NaN générées par les indicateurs
+    print("Données après calcul des indicateurs :")
+    print(data.head(20))  # Vérifiez les données après ajout des indicateurs
+
+    # Vérifiez les NaN après calcul des indicateurs
+    print("Colonnes avec valeurs manquantes après ajout des indicateurs :")
+    print(data.isna().sum())
+
+    # Supprimez les valeurs NaN résultant des calculs d'indicateurs
     data.dropna(inplace=True)
+    print("Données après suppression des NaN :")
+    print(data.head(20))
 
     return data
+
+
 
 def get_realtime_data(symbols):
     analyzer = MarketAnalyzer(symbols)
@@ -87,5 +96,35 @@ def get_realtime_data(symbols):
         return prepared_data
     finally:
         analyzer.disconnect()
+
+def check_data_quality(data):
+    print("Résumé des données après ajout des indicateurs :")
+    print(data.info())  # Vérifie les colonnes et les NaN
+    print(data.describe())  # Données statistiques pour valider les valeurs
+    missing = data.isna().sum()
+    print(f"Colonnes avec valeurs manquantes :\n{missing[missing > 0]}")  # Affiche les colonnes problématiques
+
+def process_realtime_data(symbols):
+    # Récupération des données en temps réel
+    realtime_data = get_realtime_data(symbols)
+
+    # Traitement des données
+    for symbol, df in realtime_data.items():
+        print(f"Traitement des données pour {symbol}...")
+        if df.empty:
+            print(f"⚠️ Données insuffisantes pour {symbol}")
+            continue
+
+        # Suppression des NaN après calcul des indicateurs
+        df.dropna(inplace=True)
+
+        # Vérification des données finales
+        check_data_quality(df)
+
+        print(f"✅ Données prêtes pour {symbol} :")
+        print(df.tail())  # Affiche les dernières lignes
+
+    return realtime_data
+
 
 
