@@ -49,8 +49,6 @@ def calculate_rsi(prices, period=14):
     return rsi
 
 
-
-
 def prepareData(data):
     print("Données brutes avant traitement :")
     print(data.head(20))  # Vérifiez les premières lignes
@@ -84,7 +82,6 @@ def prepareData(data):
     return data
 
 
-
 def get_realtime_data(symbols):
     analyzer = MarketAnalyzer(symbols)
     try:
@@ -97,6 +94,7 @@ def get_realtime_data(symbols):
     finally:
         analyzer.disconnect()
 
+
 def check_data_quality(data):
     print("Résumé des données après ajout des indicateurs :")
     print(data.info())  # Vérifie les colonnes et les NaN
@@ -104,27 +102,71 @@ def check_data_quality(data):
     missing = data.isna().sum()
     print(f"Colonnes avec valeurs manquantes :\n{missing[missing > 0]}")  # Affiche les colonnes problématiques
 
+
+def normalize_data(df):
+    df_normalized = df.copy()
+    for col in df.columns:
+        if np.issubdtype(df[col].dtype, np.number):  # Applique uniquement aux colonnes numériques
+            df_normalized[col] = (df[col] - df[col].min()) / (df[col].max() - df[col].min())
+    return df_normalized
+
+
+
 def process_realtime_data(symbols):
     # Récupération des données en temps réel
     realtime_data = get_realtime_data(symbols)
 
-    # Traitement des données
-    for symbol, df in realtime_data.items():
-        print(f"Traitement des données pour {symbol}...")
-        if df.empty:
-            print(f"⚠️ Données insuffisantes pour {symbol}")
-            continue
+    # Initialiser un ExcelWriter pour écrire dans un fichier Excel
+    with pd.ExcelWriter('donnees_realtime.xlsx') as writer:
+        # Traitement des données
+        for symbol, df in realtime_data.items():
+            print(f"Traitement des données pour {symbol}...")
 
-        # Suppression des NaN après calcul des indicateurs
-        df.dropna(inplace=True)
+            if df.empty:
+                print(f"⚠️ Données insuffisantes pour {symbol}")
+                continue
 
-        # Vérification des données finales
-        check_data_quality(df)
+            # Normalisation des données
+            df = normalize_data(df)
 
-        print(f"✅ Données prêtes pour {symbol} :")
-        print(df.tail())  # Affiche les dernières lignes
+            # Calcul des indicateurs
+            df['ma_fast'] = df['close'].rolling(window=5).mean()
+            df['ma_slow'] = df['close'].rolling(window=10).mean()
+            df['rsi'] = calculate_rsi(df['close'], period=14)
+
+            # Gestion des valeurs manquantes
+            # Suppression des colonnes inutiles si elles sont complètement vides
+            df = df.drop(columns=['real_volume'], errors='ignore')
+
+            # Forward fill puis backward fill pour ma_fast et ma_slow
+            df['ma_fast'] = df['ma_fast'].ffill().bfill()
+            df['ma_slow'] = df['ma_slow'].ffill().bfill()
+
+            # Remplissage de 'rsi' avec la moyenne
+            rsi_mean = df['rsi'].mean()
+            df['rsi'] = df['rsi'].fillna(rsi_mean)
+
+            # Vérification finale des NaN
+            print("Vérification des données après traitement :")
+            print(df.isnull().sum())
+
+            # Filtrer les lignes restantes
+            df = df.dropna()
+            print("Nombre de lignes restantes :", len(df))
+
+            # Vérification de la qualité des données finales
+            check_data_quality(df)
+
+            print(f"✅ Données prêtes pour {symbol} :")
+            print(df.tail())  # Affiche les dernières lignes
+
+            # Mise à jour des données dans le dictionnaire
+            realtime_data[symbol] = df
+
+            # Enregistrer le DataFrame dans un fichier Excel, avec le symbole comme nom de feuille
+            df.to_excel(writer, sheet_name=symbol)
+            print("Données enregistré !")
+            print(df)
 
     return realtime_data
-
-
 

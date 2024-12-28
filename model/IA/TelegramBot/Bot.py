@@ -2,6 +2,7 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardBu
 from telegram.ext import Application, CallbackQueryHandler, MessageHandler, filters, CommandHandler
 import asyncio
 
+
 class TradingBot:
 
     def __init__(self, bot_token: str, user_id: str, user_name: str):
@@ -15,8 +16,14 @@ class TradingBot:
     async def initialize(self, update, context):
         # Créer le clavier avec les 4 options
         keyboard = [
-            [KeyboardButton("Configurer mon MetaTrader 5 🔧"), KeyboardButton("Lancer des trade manuellement 📈")],
-            [KeyboardButton("Lancer le bot IA 🤖"), KeyboardButton("Récupérer les données d'un marché 📊")]
+            [
+                KeyboardButton("Configurer mon MetaTrader 5 🔧"),
+                KeyboardButton("Lancer des trade manuellement 📈")
+            ],
+            [
+                KeyboardButton("Lancer le bot IA 🤖"),
+                KeyboardButton("Récupérer les données d'un marché 📊")
+            ]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
