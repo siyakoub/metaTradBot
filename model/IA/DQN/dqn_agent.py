@@ -7,7 +7,7 @@ import random
 
 
 class NoisyLinear(nn.Module):
-    def __init__(self, in_features, out_features, std_init=0.1):  # Reduced std_init for more stable exploration
+    def __init__(self, in_features, out_features, std_init=0.1):
         super(NoisyLinear, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -57,27 +57,36 @@ class DuelingDQNetwork(nn.Module):
         self.batch_norm2 = nn.LayerNorm(512)
         self.dropout2 = nn.Dropout(dropout_rate)
 
-        # Separate value and advantage streams
+        self.fc_intermediate = nn.Linear(512, 512)
+        self.batch_norm_intermediate = nn.LayerNorm(512)
+        self.dropout_intermediate = nn.Dropout(dropout_rate)
+
         self.noisy_value1 = NoisyLinear(512, 256)
         self.value_bn = nn.LayerNorm(256)
         self.noisy_value2 = NoisyLinear(256, 1)
 
         self.noisy_advantage1 = NoisyLinear(512, 256)
         self.advantage_bn = nn.LayerNorm(256)
-        self.noisy_advantage2 = NoisyLinear(256, action_size)  # Ensure it matches action_size
+        self.noisy_advantage2 = NoisyLinear(256, action_size)
 
     def forward(self, x):
         x = self.dropout1(torch.relu(self.batch_norm1(self.fc1(x))))
         x = self.dropout2(torch.relu(self.batch_norm2(self.fc2(x))))
+        x = self.dropout_intermediate(torch.relu(self.batch_norm_intermediate(self.fc_intermediate(x))))
 
         value = torch.relu(self.value_bn(self.noisy_value1(x)))
-        value = self.noisy_value2(value)  # Output shape [batch_size, 1]
+        value = self.noisy_value2(value)
 
         advantage = torch.relu(self.advantage_bn(self.noisy_advantage1(x)))
-        advantage = self.noisy_advantage2(advantage)  # Output shape [batch_size, action_size]
+        advantage = self.noisy_advantage2(advantage)
 
-        return value + (advantage - advantage.mean(dim=1, keepdim=True))  # Output shape [batch_size, action_size]
+        return value + (advantage - advantage.mean(dim=1, keepdim=True))
 
+    def reset_noise(self):
+        self.noisy_value1.reset_noise()
+        self.noisy_value2.reset_noise()
+        self.noisy_advantage1.reset_noise()
+        self.noisy_advantage2.reset_noise()
 
 
 Experience = namedtuple('Experience', ('state', 'action', 'reward', 'next_state', 'done'))
@@ -89,7 +98,7 @@ class PrioritizedReplayBuffer:
         self.memory = []
         self.position = 0
         self.priorities = np.zeros((capacity,), dtype=np.float32)
-        self.alpha = alpha  # Increased importance sampling
+        self.alpha = alpha
         self.beta = beta_initial
         self.beta_decay = beta_decay
         self.max_priority = 1.0
@@ -100,6 +109,15 @@ class PrioritizedReplayBuffer:
             self.memory.append(None)
         self.memory[self.position] = Experience(*args)
         self.priorities[self.position] = self.max_priority
+        self.position = (self.position + 1) % self.capacity
+
+    def add(self, experience, td_error):
+        max_priority = self.priorities.max() if self.memory else 1.0
+        if len(self.memory) < self.capacity:
+            self.memory.append(experience)
+        else:
+            self.memory[self.position] = experience
+        self.priorities[self.position] = max_priority
         self.position = (self.position + 1) % self.capacity
 
     def sample(self, batch_size):
@@ -121,7 +139,7 @@ class PrioritizedReplayBuffer:
         return samples, indices, weights
 
     def update_priorities(self, indices, priorities):
-        priorities = np.ravel(priorities)  # Aflatir pour garantir un tableau 1D
+        priorities = np.ravel(priorities)
         for idx, priority in zip(indices, priorities):
             self.priorities[idx] = priority
             self.max_priority = max(self.max_priority, priority)
@@ -138,28 +156,38 @@ class DQNAgent:
         self.state_size = state_size
         self.action_size = action_size
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        # Hyperparamètres optimisés
-        self.memory = PrioritizedReplayBuffer(100000)  # Taille de buffer augmentée
-        self.batch_size = 128  # Taille du batch augmentée
-        self.gamma = 0.99  # Facteur de discount plus élevé
+        self.memory = PrioritizedReplayBuffer(
+            capacity=15000,  # Augmenté pour stocker plus d'expériences de trading
+            alpha=0.7,  # Augmenté pour donner plus d'importance aux expériences prioritaires
+            beta_initial=0.5,  # Augmenté pour un meilleur échantillonnage
+            beta_decay=0.0005  # Ajusté pour atteindre beta=1 plus rapidement
+        )
+        # Hyperparamètres ajustés pour 50000 épisodes
+        self.batch_size = 512  # Augmenté pour plus de stabilité
+        self.gamma = 0.98  # Maintenu pour le trading 5min
         self.epsilon = 1.0
-        self.epsilon_min = 0.05  # Exploration plus élevée
-        self.epsilon_decay = 0.995  # Décroissance plus lente
-        self.learning_rate = 3e-4  # Taux d'apprentissage optimisé
-        self.update_target_every = 1000  # Mises à jour des cibles plus fréquentes
-        self.tau = 0.001  # Mises à jour douces des cibles
-
-        # Double DQN
+        self.epsilon_min = 0.0001
+        self.epsilon_decay = 0.99999  # Très lent decay pour maintenir l'exploration plus longtemps
+        self.learning_rate = 5e-5  # Réduit pour une convergence plus stable sur le long terme
+        self.update_target_every = 200  # Augmenté pour plus de stabilité
+        self.tau = 0.001  # Réduit pour des mises à jour plus douces
         self.model = DuelingDQNetwork(state_size, action_size).to(self.device)
         self.target_model = DuelingDQNetwork(state_size, action_size).to(self.device)
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
-
-        # Planificateur de taux d'apprentissage
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode='max', factor=0.5, patience=5, verbose=True
+        # Optimizer avec paramètres pour apprentissage long
+        self.optimizer = optim.Adam(
+            self.model.parameters(),
+            lr=self.learning_rate,
+            weight_decay=1e-5,  # Régularisation ajustée
+            betas=(0.9, 0.999)
         )
-
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            mode='max',
+            factor=0.5,
+            patience=500,  # Augmenté significativement pour 50000 épisodes
+            min_lr=1e-7,  # LR minimum plus bas
+            threshold=1e-4  # Seuil de changement plus strict
+        )
         self.update_target_model()
 
     def update_target_model(self):
@@ -173,9 +201,9 @@ class DQNAgent:
         if training and random.random() < self.epsilon:
             return random.randrange(self.action_size)
 
+        self.model.reset_noise()
         self.model.eval()
         with torch.no_grad():
-            # Assurez-vous que state est sous forme de tenseur et sur le bon appareil
             state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
             act_values = self.model(state_tensor)
         self.model.train()
@@ -185,68 +213,76 @@ class DQNAgent:
         if len(self.memory) < self.batch_size:
             return
 
-        # Échantillon avec priorité
+        self.model.reset_noise()
+        self.target_model.reset_noise()
+
         minibatch, indices, weights = self.memory.sample(self.batch_size)
         states, actions, rewards, next_states, dones = zip(*minibatch)
 
-        # Conversion en tenseurs
         states_tensor = torch.FloatTensor(np.array(states)).to(self.device)
         next_states_tensor = torch.FloatTensor(np.array(next_states)).to(self.device)
         rewards_tensor = torch.FloatTensor(rewards).view(-1, 1).to(self.device)
-        actions_tensor = torch.LongTensor(actions).view(-1, 1).to(
-            self.device)
+        actions_tensor = torch.LongTensor(actions).view(-1, 1).to(self.device)  # Shape (batch_size, 1)
         dones_tensor = torch.FloatTensor(dones).view(-1, 1).to(self.device)
         weights_tensor = torch.FloatTensor(weights).view(-1, 1).to(self.device)
 
-        # Calcul du target Double DQN
         with torch.no_grad():
-            next_actions = self.model(next_states_tensor).argmax(1).unsqueeze(1)  # Shape [batch_size, 1]
-            next_q_values = self.target_model(next_states_tensor).gather(1, next_actions)  # Shape [batch_size, 1]
-            targets = rewards_tensor + (1 - dones_tensor) * self.gamma * next_q_values  # Shape [batch_size, 1]
+            next_actions = self.model(next_states_tensor).argmax(1).unsqueeze(1)
+            next_q_values = self.target_model(next_states_tensor).gather(1, next_actions)
+            targets = rewards_tensor + (1 - dones_tensor) * self.gamma * next_q_values
 
-        # Q-values actuels
-        current_q_values = self.model(states_tensor)  # Shape [batch_size, num_actions]
+        current_q_values = self.model(states_tensor)
 
-        # Si le modèle génère plusieurs valeurs (par exemple, dueling DQN), extraire la bonne valeur
-        if current_q_values.dim() == 3:
-            # Combinez les valeurs de l'état et les avantages pour obtenir une seule valeur Q par action
-            current_q_values = current_q_values[:, :, 0] + current_q_values[:, :,
-                                                           1]  # Exemples d'ajout des deux valeurs
-            current_q_values = current_q_values.view(-1, self.action_size)
+        print("current_q_values shape:", current_q_values.shape)
+        print("actions_tensor shape:", actions_tensor.shape)
 
-        # Vérifiez si la forme est correcte maintenant
-        assert current_q_values.dim() == 2, f"Expected current_q_values to be of shape [batch_size, num_actions], but got {current_q_values.shape}"
+        # Assurez-vous que les actions sont dans les bonnes limites
+        actions_tensor = actions_tensor.clamp(0, self.action_size - 1)
 
-        # Utiliser gather pour collecter les Q-values correspondant aux actions
-        current_q_values = current_q_values.gather(1, actions_tensor)  # Shape [batch_size, 1]
+        # Ajustez les indices pour gather
+        actions_tensor_expanded = actions_tensor.unsqueeze(2)  # Shape (batch_size, 1, 1)
 
-        # Calcul de la perte Huber pondérée
-        td_errors = torch.abs(current_q_values - targets)
+        # Maintenant, vous pouvez utiliser gather correctement
+        chosen_q_values = current_q_values.gather(1, actions_tensor_expanded)  # Shape (batch_size, 1, 1)
+
+        # Compute the TD error
+        td_errors = torch.abs(chosen_q_values.squeeze(1) - targets)  # Shape (batch_size)
+
+        # Compute loss
         loss = (td_errors * weights_tensor).mean()
 
-        # Étape d'optimisation
         self.optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
         self.optimizer.step()
 
-        # Mise à jour des priorités
-        priorities = (td_errors.detach().cpu().numpy() + 1e-6) ** 0.6
-        self.memory.update_priorities(indices, priorities)  # Assuming indices is a numpy array
+        priorities = np.clip((td_errors.detach().cpu().numpy() + 1e-6) ** 0.6, a_min=1e-5, a_max=1.0)
+        self.memory.update_priorities(indices, priorities)
 
-        # Mise à jour du taux d'exploration
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
-
-        # Mise à jour de beta pour l'échantillonnage d'importance
         self.memory.update_beta()
+        print(f"epsilon: {self.epsilon:.4f}, loss: {loss.item():.4f}")
 
         return loss.item()
 
-    def train(self, env, episodes, warmup_episodes=100):
+    def train(self, env, episodes=50000):
         best_reward = float('-inf')
         episode_rewards = []
 
+        # Paramètres d'entraînement adaptés pour 50000 épisodes
+        evaluation_window = 500  # Fenêtre d'évaluation plus large
+        early_stopping_patience = 2000  # Patience augmentée significativement
+        min_experiences = 5000  # Plus d'expériences avant de commencer
+
+        no_improvement_count = 0
+        best_avg_reward = float('-inf')
+
+        # Sauvegarde des meilleurs modèles
+        best_model_reward = float('-inf')
+        save_interval = 1000  # Sauvegarde tous les 1000 épisodes
+
         for e in range(episodes):
+            self.model.reset_noise()
             state = env.reset()
             total_reward = 0
             done = False
@@ -254,22 +290,57 @@ class DQNAgent:
             while not done:
                 action = self.act(state)
                 next_state, reward, done, _ = env.step(action)
+
                 self.remember(state, action, reward, next_state, done)
                 state = next_state
                 total_reward += reward
-                self.replay()
+
+                if len(self.memory) > min_experiences:
+                    self.replay()
 
             episode_rewards.append(total_reward)
+            avg_reward = np.mean(episode_rewards[-evaluation_window:])
 
-            # Ajuster le taux d'apprentissage en fonction des performances
-            self.scheduler.step(total_reward)
+            # Mise à jour du scheduler
+            self.scheduler.step(avg_reward)
 
-            # Sauvegarde du modèle
+            # Early stopping avec plus de patience
+            if avg_reward > best_avg_reward:
+                best_avg_reward = avg_reward
+                no_improvement_count = 0
+            else:
+                no_improvement_count += 1
+
+            # Sauvegarde du meilleur modèle
+            if avg_reward > best_model_reward:
+                best_model_reward = avg_reward
+                torch.save({
+                    'episode': e,
+                    'model_state_dict': self.model.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    'reward': avg_reward,
+                }, f'best_model.pth')
+
+            # Sauvegarde périodique
+            if e % save_interval == 0:
+                torch.save({
+                    'episode': e,
+                    'model_state_dict': self.model.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    'reward': avg_reward,
+                }, f'checkpoint_episode_{e}.pth')
+
+            if no_improvement_count >= early_stopping_patience:
+                print(f"Early stopping at episode {e}")
+                break
+
             if total_reward > best_reward:
                 best_reward = total_reward
-                torch.save(self.model.state_dict(), 'dqn_best_model.pth')
+                self.update_target_model()
 
-            print(f"Episode {e}/{episodes}, Reward: {total_reward}, Epsilon: {self.epsilon:.2f}")
+            # Affichage plus fréquent des métriques
+            if e % 100 == 0:
+                print(
+                    f"Episode {e}/{episodes} - Avg Reward: {avg_reward:.2f}, Epsilon: {self.epsilon:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.2e}")
 
         return episode_rewards
-

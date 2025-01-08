@@ -43,7 +43,7 @@ if __name__ == '__main__':
         raise ValueError("Les données de marché sont vides après traitement. Vérifiez la préparation des données.")
 
     # Définition des dimensions de l'espace d'état et des actions
-    state_size = market_data.shape[1] - 1 # Exclure la colonne "time"
+    state_size = market_data.shape[1] - 1# Exclure la colonne "time"
     print(state_size)
     action_size = 3  # Actions : Rester inactif, Acheter, Vendre
 
@@ -54,7 +54,7 @@ if __name__ == '__main__':
     agent = DQNAgent(state_size, action_size)
 
     # Variables pour le suivi des performances
-    episodes = 10000  # Augmenter le nombre d'épisodes
+    episodes = 50000  # Augmenter le nombre d'épisodes
     profits_history = []
     rewards_history = []
 
@@ -83,6 +83,7 @@ if __name__ == '__main__':
         # Mise à jour du modèle cible
         if episode % agent.update_target_every == 0:
             agent.update_target_model()
+
 
     # Affichage des performances
     plot_performance(profits_history, rewards_history)
