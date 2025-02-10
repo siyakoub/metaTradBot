@@ -54,7 +54,7 @@ if __name__ == '__main__':
     agent = DQNAgent(state_size, action_size)
 
     # Variables pour le suivi des performances
-    episodes = 50000  # Augmenter le nombre d'épisodes
+    episodes = 100000  # Augmenter le nombre d'épisodes
     profits_history = []
     rewards_history = []
 
@@ -79,11 +79,12 @@ if __name__ == '__main__':
 
         # Replay et mise à jour des paramètres
         agent.replay()
-
         # Mise à jour du modèle cible
         if episode % agent.update_target_every == 0:
             agent.update_target_model()
 
-
-    # Affichage des performances
     plot_performance(profits_history, rewards_history)
+
+    avg_reward = sum(rewards_history) / len(rewards_history) if len(rewards_history) > 0 else 0.0
+    agent.save("trading_model.pth", episodes, avg_reward)
+

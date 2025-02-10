@@ -344,3 +344,12 @@ class DQNAgent:
                     f"Episode {e}/{episodes} - Avg Reward: {avg_reward:.2f}, Epsilon: {self.epsilon:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.2e}")
 
         return episode_rewards
+
+    def save(self, filepath, episode, reward):
+        torch.save({
+            'episode': episode,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'reward': reward,
+        }, filepath)
+

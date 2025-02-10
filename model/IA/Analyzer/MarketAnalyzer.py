@@ -32,7 +32,7 @@ class MarketAnalyzer:
         print(Fore.GREEN + "MetaTrader 5 à été déconnecté avec succès !")
         self.connected = False
 
-    def get_market_data(self, symbol, timeframe=mt5.TIMEFRAME_M5, count=10000):
+    def get_market_data(self, symbol, timeframe=mt5.TIMEFRAME_H2, count=4380):
         """
             Récupère les données de marché pour un symbole donné.
             :param symbol: Le symbole à récupérer (ex: "EURUSD").
@@ -45,7 +45,7 @@ class MarketAnalyzer:
         now = datetime.now()
         print(Fore.MAGENTA + f"Heure actuelle du système : {now}")
         # Ajouter un léger décalage si nécessaire pour éviter des données manquantes
-        adjusted_time = now - timedelta(days=50)
+        adjusted_time = now - timedelta(days=365)
         print(Fore.MAGENTA + f"Récupération des données jusqu'à : {adjusted_time}")
         # Obtenir les données récentes
         rates = mt5.copy_rates_from(symbol, timeframe, adjusted_time, count)
