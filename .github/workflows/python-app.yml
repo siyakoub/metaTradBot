@@ -28,4 +28,5 @@ jobs:
 
     - name: Training IA
       run: |
+        $env:PYTHONPATH="${{ github.workspace }}"
         python model/IA/trainModel/trainModel.py
