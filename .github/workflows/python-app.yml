@@ -28,4 +28,4 @@ jobs:
 
     - name: Training IA
       run: |
-        python model/IA/tranModel.py
+        python model/IA/trainModel/tranModel.py
