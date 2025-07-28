@@ -3,9 +3,8 @@ pandas~=2.2.3
 scikit-learn~=1.6.0
 tensorflow~=2.18.0
 keras
-python-telegram-bot
+python-telegram-bot~=21.9
 colorama~=0.4.6
 numpy~=2.0.2
-torch~=2.5.1
-gym~=0.26.2
 matplotlib~=3.9.3
+gymnasium~=1.2.0

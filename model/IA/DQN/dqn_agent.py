@@ -1,3 +1,5 @@
+import sys
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -157,36 +159,34 @@ class DQNAgent:
         self.action_size = action_size
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.memory = PrioritizedReplayBuffer(
-            capacity=15000,  # Augmenté pour stocker plus d'expériences de trading
-            alpha=0.7,  # Augmenté pour donner plus d'importance aux expériences prioritaires
-            beta_initial=0.5,  # Augmenté pour un meilleur échantillonnage
-            beta_decay=0.0005  # Ajusté pour atteindre beta=1 plus rapidement
+            capacity=50000,  # Augmenté pour stocker plus d'expériences de trading
+            alpha=0.6,  # Augmenté pour donner plus d'importance aux expériences prioritaires
+            beta_initial=0.4,  # Augmenté pour un meilleur échantillonnage
+            beta_decay=2e-6  # Ajusté pour atteindre beta=1 plus rapidement
         )
         # Hyperparamètres ajustés pour 50000 épisodes
-        self.batch_size = 512  # Augmenté pour plus de stabilité
-        self.gamma = 0.98  # Maintenu pour le trading 5min
+        self.batch_size = 128  # Augmenté pour plus de stabilité
+        self.gamma = 0.99  # Maintenu pour le trading 5min
         self.epsilon = 1.0
-        self.epsilon_min = 0.0001
-        self.epsilon_decay = 0.99999  # Très lent decay pour maintenir l'exploration plus longtemps
-        self.learning_rate = 5e-5  # Réduit pour une convergence plus stable sur le long terme
-        self.update_target_every = 200  # Augmenté pour plus de stabilité
-        self.tau = 0.001  # Réduit pour des mises à jour plus douces
+        self.epsilon_min = 0.01
+        self.epsilon_decay = np.exp(np.log(self.epsilon_min) / 1000)
+        self.learning_rate = 1e-4
+        self.update_target_every = 1000  # Augmenté pour plus de stabilité
+        self.tau = 0.005  # Réduit pour des mises à jour plus douces
         self.model = DuelingDQNetwork(state_size, action_size).to(self.device)
+        self._optimizer_stepped = False
         self.target_model = DuelingDQNetwork(state_size, action_size).to(self.device)
         # Optimizer avec paramètres pour apprentissage long
         self.optimizer = optim.Adam(
             self.model.parameters(),
             lr=self.learning_rate,
-            weight_decay=1e-5,  # Régularisation ajustée
-            betas=(0.9, 0.999)
+            weight_decay=1e-6,  # Régularisation ajustée
+            betas=(0.9, 0.98)
         )
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer,
-            mode='max',
-            factor=0.5,
-            patience=500,  # Augmenté significativement pour 50000 épisodes
-            min_lr=1e-7,  # LR minimum plus bas
-            threshold=1e-4  # Seuil de changement plus strict
+            T_max=1000,
+            eta_min=1e-6
         )
         self.update_target_model()
 
@@ -219,7 +219,7 @@ class DQNAgent:
         minibatch, indices, weights = self.memory.sample(self.batch_size)
         states, actions, rewards, next_states, dones = zip(*minibatch)
 
-        states_tensor = torch.FloatTensor(np.array(states)).to(self.device)
+        states_tensor = torch.stack([torch.Tensor(exp.state) for exp in minibatch]).to(self.device)
         next_states_tensor = torch.FloatTensor(np.array(next_states)).to(self.device)
         rewards_tensor = torch.FloatTensor(rewards).view(-1, 1).to(self.device)
         actions_tensor = torch.LongTensor(actions).view(-1, 1).to(self.device)  # Shape (batch_size, 1)
@@ -232,9 +232,6 @@ class DQNAgent:
             targets = rewards_tensor + (1 - dones_tensor) * self.gamma * next_q_values
 
         current_q_values = self.model(states_tensor)
-
-        print("current_q_values shape:", current_q_values.shape)
-        print("actions_tensor shape:", actions_tensor.shape)
 
         # Assurez-vous que les actions sont dans les bonnes limites
         actions_tensor = actions_tensor.clamp(0, self.action_size - 1)
@@ -255,56 +252,65 @@ class DQNAgent:
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
         self.optimizer.step()
+        self._optimizer_stepped = True
 
         priorities = np.clip((td_errors.detach().cpu().numpy() + 1e-6) ** 0.6, a_min=1e-5, a_max=1.0)
         self.memory.update_priorities(indices, priorities)
-
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
         self.memory.update_beta()
-        print(f"epsilon: {self.epsilon:.4f}, loss: {loss.item():.4f}")
 
         return loss.item()
 
-    def train(self, env, episodes=50000):
+    def train(self, env, episodes):
+        """
+        Entraîne l'agent DQN sur l'environnement donné.
+        Affiche les métriques à chaque épisode :
+        Episode {e}/{episodes} - Total Rewards: {total_reward:.2f}, Profits: {profit:.2f},
+        Epsilon: {self.epsilon:.4f}, LR: {current_lr:.2e}
+        Retourne la liste des récompenses par épisode.
+        """
         best_reward = float('-inf')
         episode_rewards = []
 
-        # Paramètres d'entraînement adaptés pour 50000 épisodes
-        evaluation_window = 500  # Fenêtre d'évaluation plus large
-        early_stopping_patience = 2000  # Patience augmentée significativement
-        min_experiences = 5000  # Plus d'expériences avant de commencer
+        evaluation_window = 500
+        early_stopping_patience = 2000
+        min_experiences = 5000
 
         no_improvement_count = 0
         best_avg_reward = float('-inf')
-
-        # Sauvegarde des meilleurs modèles
         best_model_reward = float('-inf')
-        save_interval = 1000  # Sauvegarde tous les 1000 épisodes
+        save_interval = 1000
 
-        for e in range(episodes):
+        for e in range(1, episodes + 1):
+            # Indication de début d'épisode
+            current_lr = self.optimizer.param_groups[0]['lr']
+            print(f"Episode {e}/{episodes} - début d'épisode (LR: {current_lr:.2e}, Epsilon: {self.epsilon:.4f})", flush=True)
             self.model.reset_noise()
             state = env.reset()
-            total_reward = 0
+            total_reward = 0.0
+            profit = 0.0
             done = False
 
             while not done:
                 action = self.act(state)
-                next_state, reward, done, _ = env.step(action)
+                next_state, reward, done, info = env.step(action)
 
+                profit += info.get('profits', 0.0)
                 self.remember(state, action, reward, next_state, done)
                 state = next_state
                 total_reward += reward
 
                 if len(self.memory) > min_experiences:
-                    self.replay()
+                    _ = self.replay()
 
             episode_rewards.append(total_reward)
             avg_reward = np.mean(episode_rewards[-evaluation_window:])
+            if self._optimizer_stepped:
+                self.scheduler.step()
 
-            # Mise à jour du scheduler
-            self.scheduler.step(avg_reward)
+            #Decay de l'epsilon une fois par episode d'entraînement
+            self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
-            # Early stopping avec plus de patience
+            # Early stopping
             if avg_reward > best_avg_reward:
                 best_avg_reward = avg_reward
                 no_improvement_count = 0
@@ -319,7 +325,7 @@ class DQNAgent:
                     'model_state_dict': self.model.state_dict(),
                     'optimizer_state_dict': self.optimizer.state_dict(),
                     'reward': avg_reward,
-                }, f'best_model.pth')
+                }, 'best_model.pth')
 
             # Sauvegarde périodique
             if e % save_interval == 0:
@@ -338,10 +344,13 @@ class DQNAgent:
                 best_reward = total_reward
                 self.update_target_model()
 
-            # Affichage plus fréquent des métriques
-            if e % 100 == 0:
-                print(
-                    f"Episode {e}/{episodes} - Avg Reward: {avg_reward:.2f}, Epsilon: {self.epsilon:.4f}, LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+            # Logging chaque épisode
+            current_lr = self.optimizer.param_groups[0]['lr']
+            print(
+                f"✅ Episode {e}/{episodes} - Total Rewards: {total_reward:.2f}, Profits: {profit:.2f}, "
+                f"Epsilon: {self.epsilon:.4f}, LR: {current_lr:.2e}",
+                flush=True
+            )
 
         return episode_rewards
 
